@@ -1,47 +1,23 @@
 const express = require('express');
 const cors = require('cors');
 const { v4: uuidv4 } = require('uuid');
-const { MongoClient } = require('mongodb');
 
 const app = express();
 
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 
-// MONGODB_URI otomatis dibuat oleh Vercel saat kamu menghubungkan MongoDB Atlas
-const uri = process.env.MONGODB_URI; 
+// Mengambil data dari Environment Variables Vercel
+const GITHUB_TOKEN = process.env.GITHUB_TOKEN;
+const GITHUB_OWNER = process.env.GITHUB_OWNER; // Username GitHub kamu
+const GITHUB_REPO = process.env.GITHUB_REPO;   // Nama repository kamu
 
-// Konfigurasi koneksi MongoDB untuk Serverless Vercel
-let cachedClient = null;
-let cachedDb = null;
-
-async function connectToDatabase() {
-    // Gunakan koneksi yang sudah ada jika tersedia (agar tidak lemot)
-    if (cachedClient && cachedDb) {
-        return cachedDb;
-    }
-
-    if (!uri) {
-        throw new Error("MONGODB_URI tidak ditemukan di Environment Variables Vercel!");
-    }
-
-    const client = new MongoClient(uri);
-    await client.connect();
-    
-    // Nama database bebas, kita pakai "lenz_db"
-    const db = client.db('lenz_db'); 
-
-    cachedClient = client;
-    cachedDb = db;
-    return db;
-}
-
-// API untuk membuat artikel / upload foto
+// API untuk Upload ke GitHub
 app.post('/api/create', async (req, res) => {
     const { title, author, content, image } = req.body;
 
     if (!content && !image) {
-        return res.status(400).json({ error: 'Harus ada teks atau foto yang diupload!' });
+        return res.status(400).json({ error: 'Data kosong! Isi teks atau foto.' });
     }
 
     const postId = uuidv4().substring(0, 8);
@@ -54,11 +30,29 @@ app.post('/api/create', async (req, res) => {
         createdAt: new Date().toISOString()
     };
 
+    // GitHub API wajib menerima konten dalam format Base64
+    const fileContent = Buffer.from(JSON.stringify(newPost)).toString('base64');
+    const path = `posts/${postId}.json`; // Data akan disimpan di folder "posts"
+
     try {
-        const db = await connectToDatabase();
-        const collection = db.collection('posts'); // Nama tabel/koleksinya "posts"
-        
-        await collection.insertOne(newPost);
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
+            method: 'PUT',
+            headers: {
+                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'Content-Type': 'application/json',
+                'User-Agent': 'Lenz-Uploader-App'
+            },
+            body: JSON.stringify({
+                message: `Upload post: ${postId} via Web/Bot`,
+                content: fileContent
+            })
+        });
+
+        if (!response.ok) {
+            const err = await response.json();
+            throw new Error(err.message);
+        }
 
         const host = req.headers.host;
         const protocol = host.includes('localhost') ? 'http' : 'https';
@@ -66,29 +60,37 @@ app.post('/api/create', async (req, res) => {
 
         res.json({ success: true, url: postUrl, data: newPost });
     } catch (error) {
-        console.error("Error Database:", error);
-        res.status(500).json({ error: 'Gagal menyimpan ke database MongoDB' });
+        console.error(error);
+        res.status(500).json({ error: 'Gagal upload ke GitHub: ' + error.message });
     }
 });
 
-// API untuk mengambil data
+// API untuk Membaca Data dari GitHub
 app.get('/api/post/:id', async (req, res) => {
+    const path = `posts/${req.params.id}.json`;
+    
     try {
-        const db = await connectToDatabase();
-        const collection = db.collection('posts');
-        
-        // Cari data berdasarkan ID yang dikirim
-        const post = await collection.findOne({ id: req.params.id });
+        // Fetch ke API GitHub agar bisa membaca repo Private maupun Public
+        const response = await fetch(`https://api.github.com/repos/${GITHUB_OWNER}/${GITHUB_REPO}/contents/${path}`, {
+            headers: {
+                'Authorization': `Bearer ${GITHUB_TOKEN}`,
+                'Accept': 'application/vnd.github.v3+json',
+                'User-Agent': 'Lenz-Uploader-App'
+            }
+        });
 
-        if (post) {
-            delete post._id; // Hapus ID bawaan MongoDB agar hasilnya rapi
-            res.json(post);
-        } else {
-            res.status(404).json({ error: 'Artikel/Foto tidak ditemukan' });
+        if (!response.ok) {
+            return res.status(404).json({ error: 'Artikel/Foto tidak ditemukan di Repo GitHub' });
         }
+
+        const data = await response.json();
+        
+        // GitHub mengembalikan isi file dalam format Base64, jadi kita terjemahkan dulu
+        const decodedContent = Buffer.from(data.content, 'base64').toString('utf-8');
+        res.json(JSON.parse(decodedContent));
+        
     } catch (error) {
-        console.error("Error Database:", error);
-        res.status(500).json({ error: 'Gagal mengambil data dari MongoDB' });
+        res.status(500).json({ error: 'Gagal mengambil data dari GitHub' });
     }
 });
 
