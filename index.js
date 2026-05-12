@@ -6,22 +6,24 @@ const { kv } = require('@vercel/kv');
 const app = express();
 
 app.use(cors());
-app.use(express.json());
+// Perbesar limit JSON menjadi 5MB agar kuat menerima file foto
+app.use(express.json({ limit: '5mb' }));
 
-// API untuk membuat artikel (Dipakai Web & Bot WA)
 app.post('/api/create', async (req, res) => {
-    const { title, author, content } = req.body;
+    const { title, author, content, image } = req.body;
 
-    if (!title || !content) {
-        return res.status(400).json({ error: 'Judul dan konten wajib diisi!' });
+    // Validasi: Minimal harus ada teks konten ATAU gambar
+    if (!content && !image) {
+        return res.status(400).json({ error: 'Harus ada teks atau foto yang diupload!' });
     }
 
     const postId = uuidv4().substring(0, 8);
     const newPost = {
         id: postId,
-        title,
+        title: title || 'Lenz Upload', // Judul default jika dikosongkan
         author: author || 'Anonymous',
-        content,
+        content: content || '',
+        image: image || null, // Menyimpan gambar dalam format Base64
         createdAt: new Date().toISOString()
     };
 
@@ -33,18 +35,18 @@ app.post('/api/create', async (req, res) => {
 
         res.json({ success: true, url: postUrl, data: newPost });
     } catch (error) {
-        res.status(500).json({ error: 'Gagal menyimpan ke database' });
+        console.error(error);
+        res.status(500).json({ error: 'Gagal menyimpan. Pastikan ukuran foto tidak terlalu besar.' });
     }
 });
 
-// API untuk mengambil data artikel
 app.get('/api/post/:id', async (req, res) => {
     try {
         const post = await kv.get(`post:${req.params.id}`);
         if (post) {
             res.json(post);
         } else {
-            res.status(404).json({ error: 'Artikel tidak ditemukan' });
+            res.status(404).json({ error: 'Artikel/Foto tidak ditemukan' });
         }
     } catch (error) {
         res.status(500).json({ error: 'Gagal mengambil data' });
