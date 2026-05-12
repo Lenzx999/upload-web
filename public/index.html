@@ -3,48 +3,93 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Buat Artikel Baru</title>
+    <title>Lenz Uploader</title>
     <style>
         body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f9f9f9; }
         input, textarea { width: 100%; margin-bottom: 15px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
-        textarea { height: 250px; }
+        textarea { height: 200px; }
+        input[type="file"] { background: #fff; cursor: pointer; }
         button { width: 100%; padding: 12px; background: #000; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
         #linkBox { display: none; margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; word-break: break-all; }
+        .branding { text-align: center; margin-bottom: 30px; }
+        .branding h2 { margin: 0; font-size: 28px; }
+        .branding p { margin: 5px 0 0 0; color: #666; font-size: 14px; }
     </style>
 </head>
 <body>
-    <h2>Telegraph Clone</h2>
-    <input type="text" id="title" placeholder="Judul Artikel">
-    <input type="text" id="author" placeholder="Nama Penulis">
-    <textarea id="content" placeholder="Isi artikel..."></textarea>
-    <button onclick="publish()" id="btn">Terbitkan</button>
+    <div class="branding">
+        <h2>Lenz Uploader</h2>
+        <p>Upload Foto atau Tulis Artikel</p>
+    </div>
+
+    <input type="text" id="title" placeholder="Judul (Opsional)">
+    <input type="text" id="author" placeholder="Nama Penulis (Opsional)">
+    
+    <!-- Input untuk Foto -->
+    <label style="font-size: 14px; color: #666; font-weight: bold;">Pilih Foto (Opsional):</label>
+    <input type="file" id="imageInput" accept="image/*">
+    
+    <textarea id="content" placeholder="Isi teks di sini (Opsional jika sudah upload foto)..."></textarea>
+    <button onclick="publish()" id="btn">Upload / Terbitkan</button>
 
     <div id="linkBox">
-        Berhasil! Link: <a id="resultLink" href="" target="_blank"></a>
+        ✅ Berhasil! Link: <a id="resultLink" href="" target="_blank"></a>
     </div>
 
     <script>
         async function publish() {
             const btn = document.getElementById('btn');
-            btn.innerText = "Processing...";
-            const payload = {
-                title: document.getElementById('title').value,
-                author: document.getElementById('author').value,
-                content: document.getElementById('content').value
-            };
+            const title = document.getElementById('title').value;
+            const author = document.getElementById('author').value;
+            const content = document.getElementById('content').value;
+            const imageFile = document.getElementById('imageInput').files[0];
 
-            const res = await fetch('/api/create', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
+            if (!content && !imageFile) {
+                alert("Kamu harus mengisi teks konten atau mengupload foto!");
+                return;
+            }
 
-            const data = await res.json();
-            btn.innerText = "Terbitkan";
-            if (data.success) {
-                document.getElementById('linkBox').style.display = 'block';
-                document.getElementById('resultLink').href = data.url;
-                document.getElementById('resultLink').innerText = data.url;
+            btn.innerText = "Memproses...";
+            let imageBase64 = null;
+
+            // Jika ada foto, ubah menjadi format Base64
+            if (imageFile) {
+                // Batasi file 1.5MB agar database Vercel KV gratis tidak error
+                if (imageFile.size > 1.5 * 1024 * 1024) {
+                    alert("Ukuran foto maksimal 1.5 MB.");
+                    btn.innerText = "Upload / Terbitkan";
+                    return;
+                }
+
+                imageBase64 = await new Promise((resolve, reject) => {
+                    const reader = new FileReader();
+                    reader.onload = () => resolve(reader.result);
+                    reader.onerror = error => reject(error);
+                    reader.readAsDataURL(imageFile);
+                });
+            }
+
+            const payload = { title, author, content, image: imageBase64 };
+
+            try {
+                const res = await fetch('/api/create', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                const data = await res.json();
+                btn.innerText = "Upload / Terbitkan";
+                if (data.success) {
+                    document.getElementById('linkBox').style.display = 'block';
+                    document.getElementById('resultLink').href = data.url;
+                    document.getElementById('resultLink').innerText = data.url;
+                } else {
+                    alert("Gagal: " + data.error);
+                }
+            } catch (e) {
+                alert("Terjadi kesalahan pada server.");
+                btn.innerText = "Upload / Terbitkan";
             }
         }
     </script>
