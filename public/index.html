@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Buat Artikel Baru</title>
+    <style>
+        body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f9f9f9; }
+        input, textarea { width: 100%; margin-bottom: 15px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
+        textarea { height: 250px; }
+        button { width: 100%; padding: 12px; background: #000; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
+        #linkBox { display: none; margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; word-break: break-all; }
+    </style>
+</head>
+<body>
+    <h2>Telegraph Clone</h2>
+    <input type="text" id="title" placeholder="Judul Artikel">
+    <input type="text" id="author" placeholder="Nama Penulis">
+    <textarea id="content" placeholder="Isi artikel..."></textarea>
+    <button onclick="publish()" id="btn">Terbitkan</button>
+
+    <div id="linkBox">
+        Berhasil! Link: <a id="resultLink" href="" target="_blank"></a>
+    </div>
+
+    <script>
+        async function publish() {
+            const btn = document.getElementById('btn');
+            btn.innerText = "Processing...";
+            const payload = {
+                title: document.getElementById('title').value,
+                author: document.getElementById('author').value,
+                content: document.getElementById('content').value
+            };
+
+            const res = await fetch('/api/create', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            const data = await res.json();
+            btn.innerText = "Terbitkan";
+            if (data.success) {
+                document.getElementById('linkBox').style.display = 'block';
+                document.getElementById('resultLink').href = data.url;
+                document.getElementById('resultLink').innerText = data.url;
+            }
+        }
+    </script>
+</body>
+</html>
