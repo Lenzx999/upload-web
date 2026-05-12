@@ -8,9 +8,10 @@
         body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 50px auto; padding: 20px; background: #f9f9f9; }
         input, textarea { width: 100%; margin-bottom: 15px; padding: 12px; border: 1px solid #ddd; border-radius: 8px; font-size: 16px; box-sizing: border-box; }
         textarea { height: 200px; }
-        input[type="file"] { background: #fff; cursor: pointer; }
-        button { width: 100%; padding: 12px; background: #000; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; }
-        #linkBox { display: none; margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; word-break: break-all; }
+        input[type="file"] { background: #fff; cursor: pointer; padding: 10px; }
+        button { width: 100%; padding: 12px; background: #000; color: #fff; border: none; border-radius: 8px; cursor: pointer; font-weight: bold; font-size: 16px; }
+        button:disabled { background: #666; cursor: not-allowed; }
+        #linkBox { display: none; margin-top: 20px; padding: 15px; background: #e7f3ff; border-radius: 8px; word-break: break-all; font-size: 15px; }
         .branding { text-align: center; margin-bottom: 30px; }
         .branding h2 { margin: 0; font-size: 28px; }
         .branding p { margin: 5px 0 0 0; color: #666; font-size: 14px; }
@@ -25,18 +26,52 @@
     <input type="text" id="title" placeholder="Judul (Opsional)">
     <input type="text" id="author" placeholder="Nama Penulis (Opsional)">
     
-    <!-- Input untuk Foto -->
-    <label style="font-size: 14px; color: #666; font-weight: bold;">Pilih Foto (Opsional):</label>
+    <label style="font-size: 14px; color: #666; font-weight: bold; display: block; margin-bottom: 5px;">Pilih Foto (Opsional):</label>
     <input type="file" id="imageInput" accept="image/*">
     
     <textarea id="content" placeholder="Isi teks di sini (Opsional jika sudah upload foto)..."></textarea>
+    
     <button onclick="publish()" id="btn">Upload / Terbitkan</button>
 
     <div id="linkBox">
-        ✅ Berhasil! Link: <a id="resultLink" href="" target="_blank"></a>
+        ✅ <strong>Berhasil!</strong> Link kamu:<br><br>
+        <a id="resultLink" href="" target="_blank" style="color: #0066cc; font-weight: bold;"></a>
     </div>
 
     <script>
+        // Fungsi Pintar untuk Auto-Compress Gambar
+        function compressImage(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.readAsDataURL(file);
+                reader.onload = (event) => {
+                    const img = new Image();
+                    img.src = event.target.result;
+                    img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        // Batasi lebar maksimal 800 pixel (Sangat aman untuk Vercel KV)
+                        const MAX_WIDTH = 800; 
+                        let scaleSize = 1;
+                        
+                        if (img.width > MAX_WIDTH) {
+                            scaleSize = MAX_WIDTH / img.width;
+                        }
+                        
+                        canvas.width = img.width * scaleSize;
+                        canvas.height = img.height * scaleSize;
+
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+
+                        // Ubah jadi JPEG dengan kualitas 70% (File jadi sangat kecil tapi tetap tajam)
+                        const compressedBase64 = canvas.toDataURL('image/jpeg', 0.7);
+                        resolve(compressedBase64);
+                    }
+                };
+                reader.onerror = error => reject(error);
+            });
+        }
+
         async function publish() {
             const btn = document.getElementById('btn');
             const title = document.getElementById('title').value;
@@ -49,37 +84,34 @@
                 return;
             }
 
-            btn.innerText = "Memproses...";
+            // Ubah tombol jadi loading
+            btn.innerText = "Memproses & Mengupload...";
+            btn.disabled = true;
+            document.getElementById('linkBox').style.display = 'none';
+
             let imageBase64 = null;
 
-            // Jika ada foto, ubah menjadi format Base64
-            if (imageFile) {
-                // Batasi file 1.5MB agar database Vercel KV gratis tidak error
-                if (imageFile.size > 1.5 * 1024 * 1024) {
-                    alert("Ukuran foto maksimal 1.5 MB.");
-                    btn.innerText = "Upload / Terbitkan";
-                    return;
+            try {
+                // Jika ada foto, lakukan kompresi otomatis
+                if (imageFile) {
+                    imageBase64 = await compressImage(imageFile);
                 }
 
-                imageBase64 = await new Promise((resolve, reject) => {
-                    const reader = new FileReader();
-                    reader.onload = () => resolve(reader.result);
-                    reader.onerror = error => reject(error);
-                    reader.readAsDataURL(imageFile);
-                });
-            }
+                const payload = { title, author, content, image: imageBase64 };
 
-            const payload = { title, author, content, image: imageBase64 };
-
-            try {
                 const res = await fetch('/api/create', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
 
+                // Cek jika server mengembalikan error (misal batas payload Vercel)
+                if (!res.ok) {
+                    throw new Error(`Server menolak request (Status: ${res.status})`);
+                }
+
                 const data = await res.json();
-                btn.innerText = "Upload / Terbitkan";
+                
                 if (data.success) {
                     document.getElementById('linkBox').style.display = 'block';
                     document.getElementById('resultLink').href = data.url;
@@ -88,8 +120,12 @@
                     alert("Gagal: " + data.error);
                 }
             } catch (e) {
-                alert("Terjadi kesalahan pada server.");
+                console.error(e);
+                alert("Terjadi kesalahan! Pastikan ukuran file aslinya tidak lebih dari 4MB atau coba ulangi lagi.");
+            } finally {
+                // Kembalikan tombol seperti semula
                 btn.innerText = "Upload / Terbitkan";
+                btn.disabled = false;
             }
         }
     </script>
